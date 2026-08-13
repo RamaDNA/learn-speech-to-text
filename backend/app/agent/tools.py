@@ -1,0 +1,159 @@
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.agent import executors as ex
+
+_PENDING: dict[str, dict] = {}
+_LAST_MESSAGE: dict[str, str] = {}
+
+POSITIVE = {"ya", "yes", "y", "betul", "benar", "siap", "oke", "ok", "setuju", "boleh", "lanjut", "gass", "gas", "iya", "bolehkan", "ayo"}
+NEGATIVE = {"tidak", "no", "gak", "nggak", "batal", "cancel", "jangan", "stop", "nope", "enggak", "ga"}
+
+
+def set_last_message(session_id: str, message: str) -> None:
+    _LAST_MESSAGE[session_id] = message.lower()
+
+
+def get_pending(session_id: str) -> dict | None:
+    return _PENDING.get(session_id)
+
+
+def cancel_pending(session_id: str) -> None:
+    _PENDING.pop(session_id, None)
+
+
+def clear_approval(session_id: str) -> None:
+    _PENDING.pop(session_id, None)
+    _LAST_MESSAGE.pop(session_id, None)
+
+
+def classify_confirmation(message: str) -> str:
+    """'approve' | 'reject' | 'neutral'"""
+    msg = message.lower()
+    if any(word in msg for word in NEGATIVE) and not any(word in msg for word in POSITIVE):
+        return "reject"
+    if any(word in msg for word in POSITIVE):
+        return "approve"
+    return "neutral"
+
+
+def _await(session_id: str, tool_name: str, args: dict) -> str:
+    _PENDING[session_id] = {"tool": tool_name, "args": dict(args)}
+    # Kode khusus: router menyulapnya jadi pertanyaan konfirmasi yang natural
+    return f"{{{{AWAIT_CONFIRM}}}} {tool_name} {args}"
+
+
+def execute_tool(db: Session, tool_name: str, args: dict, session_id: str = "") -> str:
+    if session_id:
+        if tool_name in ("take_item", "drop_item"):
+            if get_pending(session_id) is None:
+                return _await(session_id, tool_name, args)
+
+    fn = getattr(ex, f"executor_{tool_name}", None)
+    if fn is None:
+        return f"Tool {tool_name} tidak dikenal."
+    try:
+        return fn(db, args)
+    except Exception as e:  # safety net — jangan bocor exception ke model
+        return f"Terjadi kesalahan internal saat eksekusi tool {tool_name}: {e}"
+
+
+def run_approved_pending(db: Session, session_id: str) -> str | None:
+    """Eksekusi langsung pending yang sudah disetujui. Return None jika tidak ada."""
+    pending = get_pending(session_id)
+    if not pending:
+        return None
+    clear_approval(session_id)
+    return execute_tool(db, pending["tool"], pending["args"])
+
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_items",
+            "description": "Cari barang di gudang berdasarkan nama/SKU/kategori. Kembalikan daftar item lengkap dengan jumlah stock per lokasi.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Kata kunci pencarian, misal 'baut' atau 'M8'"}
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_item",
+            "description": "Ambil detail stock satu item: daftar lokasi + jumlah per lokasi (biasanya sudah cukup dari search_items).",
+            "parameters": {
+                "type": "object",
+                "properties": {"item_id": {"type": "integer", "description": "ID item dari search_items"}},
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_item",
+            "description": "Tambah barang baru ke katalog gudang (belum menaruh stock). HANYA jika user eksplisit minta menambah/input barang baru yang belum ada.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string", "description": "Kode SKU unik, misal 'BOLT-M8'"},
+                    "name": {"type": "string", "description": "Nama barang yang jelas, misal 'Baut M8'"},
+                    "category": {"type": "string", "description": "Kategori, misal 'Fastener'"},
+                    "max_stock": {"type": "integer", "description": "Kapasitas maksimal, default 0"},
+                },
+                "required": ["sku", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "take_item",
+            "description": "Ambil/mengeluarkan barang dari gudang (stock berkurang + transaksi OUT). Berikan NAMA BARANG, bukan ID. Server akan otomatis meminta konfirmasi user sebelum eksekusi.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_name": {"type": "string", "description": "Nama barang yang jelas, misal 'Baut M8'"},
+                    "location_code": {"type": "string", "description": "Kode lokasi/rak, misal 'A1-R1'. Boleh kosong, sistem pilih lokasi dengan stock terbanyak"},
+                    "quantity": {"type": "integer", "description": "Jumlah yang diambil"},
+                    "employee": {"type": "string", "description": "Nama karyawan yang mengambil, bila ada"},
+                    "note": {"type": "string", "description": "Catatan, misal alasan"},
+                },
+                "required": ["item_name", "quantity"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "drop_item",
+            "description": "Menaruh/memasukkan barang ke gudang (stock bertambah + transaksi IN). Berikan NAMA BARANG, bukan ID. Server akan otomatis meminta konfirmasi user sebelum eksekusi.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_name": {"type": "string", "description": "Nama barang yang jelas, misal 'Baut M8'"},
+                    "location_code": {"type": "string", "description": "Kode lokasi/rak tujuan, misal 'B1-R1'. WAJIB diisi jika user menyebut lokasi"},
+                    "quantity": {"type": "integer", "description": "Jumlah yang ditaruh"},
+                    "employee": {"type": "string", "description": "Nama karyawan, bila ada"},
+                    "note": {"type": "string", "description": "Catatan"},
+                },
+                "required": ["item_name", "quantity"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_locations",
+            "description": "Daftar semua lokasi penyimpanan di gudang: kode rak + deskripsi.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+]

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environment & secrets
+.env
+*.env.local
+
+# Virtualenv
+.venv/
+venv/
+
+# Models (download via scripts/download_models.py)
+models/
+
+# Runtime artifacts
+tmp_rec.wav
+last_utterance.raw
+.tts_cache/
+*.log
+
+# Local tooling
+.opencode/

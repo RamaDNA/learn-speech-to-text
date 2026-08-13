@@ -1,0 +1,37 @@
+server:
+  api_url: http://localhost:8000
+  api_key: dev-secret-key-123
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  chunk_ms: 30          # ukuran chunk audio untuk VAD (ms)
+  device: null          # null = default mic/speaker
+  volume: 90
+
+stt:
+  model_dir: ../models/sherpa-onnx-whisper-base
+  language: auto        # auto = deteksi otomatis (ind/en)
+  hotwords:             # kosongkan bila tidak pakai
+    - baut
+    - mur
+    - sekrup
+
+vad:
+  model_path: ../models/silero_vad.onnx
+  threshold: 0.5        # probabilitas bicara
+  min_speech_ms: 250
+  min_silence_ms: 600   # diam selama ini = selesai bicara
+
+tts:
+  voice_id: ../models/piper-id_ID-news_tts-medium/id_ID-news_tts-medium.onnx
+  voice_en: ../models/piper-en_US-lessac-medium/en_US-lessac-medium.onnx
+
+wakeword:
+  enabled: true         # opsional; pakai OpenWakeWord bila true
+  wake_words: ["hey_jarvis_v0.1"]
+  threshold: 0.5
+
+agent:
+  session_id: device-demo-01
+  max_retries: 2
