@@ -43,6 +43,11 @@ def update_item(db: Session, item_id: int, data: dict) -> Item:
 
 def delete_item(db: Session, item_id: int) -> None:
     item = _get_item(db, item_id)
+    if db.scalar(select(StockTransaction).where(StockTransaction.item_id == item_id)):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Item id={item_id} masih punya riwayat transaksi, tidak bisa dihapus",
+        )
     db.delete(item)
     db.commit()
 
@@ -70,6 +75,16 @@ def create_location(db: Session, code: str, zone: str | None, rack: str | None,
 
 def delete_location(db: Session, location_id: int) -> None:
     loc = _get_location(db, location_id)
+    if db.scalar(select(StockTransaction).where(StockTransaction.location_id == location_id)):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Lokasi id={location_id} masih punya riwayat transaksi, tidak bisa dihapus",
+        )
+    if db.scalar(select(ItemStock).where(ItemStock.location_id == location_id)):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Lokasi id={location_id} masih berisi stock, pindahkan/kosongkan dulu",
+        )
     db.delete(loc)
     db.commit()
 
@@ -87,6 +102,8 @@ def get_stock(db: Session, item_id: int) -> list[ItemStock]:
 def set_stock(db: Session, item_id: int, location_id: int, quantity: int) -> ItemStock:
     _get_item(db, item_id)
     _get_location(db, location_id)
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity tidak boleh negatif")
     stock = db.scalar(
         select(ItemStock).where(
             ItemStock.item_id == item_id, ItemStock.location_id == location_id
