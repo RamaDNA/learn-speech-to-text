@@ -1,6 +1,5 @@
 """Piper TTS — sintesis suara, mendukung bahasa id & en, dengan cache."""
-import io
-import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -39,7 +38,7 @@ class PiperTTS:
     def synth(self, text: str, lang: str = "id", output_wav: str | Path | None = None,
               sample_rate: int = 22050) -> np.ndarray | None:
         """Sintesis text -> audio float. Bisa tulis file .wav."""
-        cache_key = f"{lang}_{abs(hash(text))}.wav"
+        cache_key = f"{lang}_{hashlib.md5(text.encode('utf-8')).hexdigest()}.wav"
         cache_path = self.cache_dir / cache_key
         if cache_path.exists():
             data, sr = sf.read(str(cache_path), dtype="float32")
