@@ -8,13 +8,20 @@ import requests
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-BASE_HF = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/main"
+BASE_HF_TINY = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/main"
+BASE_HF_BASE = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main"
 
 STT_SOURCES = {
     "sherpa-onnx-whisper-tiny": [
-        f"{BASE_HF}/tiny-encoder.int8.onnx",
-        f"{BASE_HF}/tiny-decoder.int8.onnx",
-        f"{BASE_HF}/tiny-tokens.txt",
+        f"{BASE_HF_TINY}/tiny-encoder.int8.onnx",
+        f"{BASE_HF_TINY}/tiny-decoder.int8.onnx",
+        f"{BASE_HF_TINY}/tiny-tokens.txt",
+    ],
+    # default di config.yaml & WhisperSTT (akurasi bahasa Indonesia lebih baik)
+    "sherpa-onnx-whisper-base": [
+        f"{BASE_HF_BASE}/base-encoder.int8.onnx",
+        f"{BASE_HF_BASE}/base-decoder.int8.onnx",
+        f"{BASE_HF_BASE}/base-tokens.txt",
     ],
 }
 
@@ -29,9 +36,9 @@ TTS_SOURCES = {
     ],
 }
 
-VAD_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+VAD_URL = "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
 
-WAKEWORD_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.6.0/hey_jarvis_v0.1.onnx"
+WAKEWORD_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_jarvis_v0.1.onnx"
 
 
 def download(url: str, dest: Path) -> None:
@@ -64,17 +71,18 @@ def main() -> None:
     args = ap.parse_args()
 
     if not args.tts_only:
-        print("[STT] Whisper-tiny int8 (multilingual ind+en)")
+        print("[STT] Whisper int8 (multilingual ind+en): tiny + base")
         for name, urls in STT_SOURCES.items():
             dest_dir = MODELS_DIR / name
             dest_dir.mkdir(exist_ok=True)
             for url in urls:
                 download(url, dest_dir / url.split("/")[-1])
 
-        print("[VAD] silero-vad.onnx")
+        print("[VAD] silero-vad.onnx (v5.1.2)")
         download(VAD_URL, MODELS_DIR / "silero_vad.onnx")
 
-        print("[WakeWord] dari package openwakeword (hey jarvis built-in)")
+        print("[WakeWord] hey_jarvis_v0.1.onnx")
+        download(WAKEWORD_URL, MODELS_DIR / "hey_jarvis_v0.1.onnx")
 
     if not args.stt_only:
         print("[TTS] Piper voices (id + en)")
