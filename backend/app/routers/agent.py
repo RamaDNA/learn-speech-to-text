@@ -25,6 +25,9 @@ def _confirm_question(tool_name: str, args: dict) -> str:
 
 def _get_history(session_id: str) -> list[dict]:
     if session_id not in _sessions:
+        if len(_sessions) >= 100:  # batas aman: drop session tertua
+            oldest = next(iter(_sessions))
+            _sessions.pop(oldest)
         _sessions[session_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
     history = _sessions[session_id]
     if len(history) > 14:  # trim lama, keep system
