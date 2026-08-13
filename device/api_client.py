@@ -33,7 +33,7 @@ class AgentAPI:
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"API HTTP {e.code}: {body}") from e
-        reply = str(data.get("reply", "")).strip()
+        reply = str(data.get("reply") or "").strip()
         sid = str(data.get("session_id") or self.session_id)
         return reply, sid
 
