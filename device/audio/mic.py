@@ -44,6 +44,9 @@ class VoiceCapture:
         pre_roll_len = self.pre_roll // self.chunk
         speech_started = False
         total_samples = 0
+        self._spoken_samples = 0
+        self._silence_samples = 0
+        self.vad.reset()  # mulai dari state bersih
 
         with sd.InputStream(
             samplerate=self.sample_rate,
