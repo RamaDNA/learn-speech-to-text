@@ -1,3 +1,5 @@
+"""Manajemen token-session untuk tool agent: pending approval + klasifikasi konfirmasi."""
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -28,12 +30,15 @@ def clear_approval(session_id: str) -> None:
     _LAST_MESSAGE.pop(session_id, None)
 
 
+_WORD_RE = re.compile(r"[a-z]+")
+
+
 def classify_confirmation(message: str) -> str:
-    """'approve' | 'reject' | 'neutral'"""
-    msg = message.lower()
-    if any(word in msg for word in NEGATIVE) and not any(word in msg for word in POSITIVE):
+    """'approve' | 'reject' | 'neutral' — pencocokan per-kata (bukan substring)."""
+    words = set(_WORD_RE.findall(message.lower()))
+    if words & NEGATIVE and not words & POSITIVE:
         return "reject"
-    if any(word in msg for word in POSITIVE):
+    if words & POSITIVE:
         return "approve"
     return "neutral"
 
@@ -45,10 +50,10 @@ def _await(session_id: str, tool_name: str, args: dict) -> str:
 
 
 def execute_tool(db: Session, tool_name: str, args: dict, session_id: str = "") -> str:
-    if session_id:
-        if tool_name in ("take_item", "drop_item"):
-            if get_pending(session_id) is None:
-                return _await(session_id, tool_name, args)
+    # take/drop SELALU butuh konfirmasi user; pengeksekusi hanya lewat
+    # run_approved_pending() yang memanggil TANPA session_id (sudah disetujui).
+    if session_id and tool_name in ("take_item", "drop_item"):
+        return _await(session_id, tool_name, args)
 
     fn = getattr(ex, f"executor_{tool_name}", None)
     if fn is None:
