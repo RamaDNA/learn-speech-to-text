@@ -119,9 +119,14 @@ class VoiceAssistant:
 
     def run(self):
         log.info("Asisten siap. Tekan Ctrl+C untuk berhenti.")
+        greeted = False
         while True:
             try:
-                if self.awake or self._listen_wakeword():
+                if self.awake:
+                    if not greeted:
+                        self.say("Ada yang bisa saya bantu?", "id")
+                        greeted = True
+                elif self._listen_wakeword():
                     self.say("Ada yang bisa saya bantu?", "id")
                 pcm = self.mic.capture_once()
                 if pcm is None:
