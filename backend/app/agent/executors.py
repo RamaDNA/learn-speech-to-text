@@ -87,7 +87,21 @@ def executor_add_item(db, args: dict) -> str:
         return f"Gagal membuat barang: {e}"
 
 
+def _positive_quantity(args: dict, tool_label: str) -> int | None:
+    """Validasi quantity > 0. Return None bila invalid."""
+    try:
+        qty = int(args.get("quantity", 0))
+    except (TypeError, ValueError):
+        qty = 0
+    if qty <= 0:
+        return None
+    return qty
+
+
 def executor_take_item(db, args: dict) -> str:
+    qty = _positive_quantity(args, "mengambil")
+    if qty is None:
+        return "Gagal: jumlah yang diminta harus bilangan bulat positif (misal 5)."
     err, item_id = _resolve_item(db, args["item_name"])
     if err:
         return f"Gagal: {err}"
@@ -99,7 +113,7 @@ def executor_take_item(db, args: dict) -> str:
             db,
             item_id=item_id,
             location_id=location_id,
-            quantity=int(args["quantity"]),
+            quantity=qty,
             employee=args.get("employee") or None,
             note=args.get("note"),
         )
@@ -112,6 +126,9 @@ def executor_take_item(db, args: dict) -> str:
 
 
 def executor_drop_item(db, args: dict) -> str:
+    qty = _positive_quantity(args, "menaruh")
+    if qty is None:
+        return "Gagal: jumlah yang diminta harus bilangan bulat positif (misal 10)."
     err, item_id = _resolve_item(db, args["item_name"])
     if err:
         return f"Gagal: {err}"
@@ -123,7 +140,7 @@ def executor_drop_item(db, args: dict) -> str:
             db,
             item_id=item_id,
             location_id=location_id,
-            quantity=int(args["quantity"]),
+            quantity=qty,
             employee=args.get("employee") or None,
             note=args.get("note"),
         )
