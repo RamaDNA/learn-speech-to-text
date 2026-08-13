@@ -14,6 +14,8 @@ def take_stock(item_id: int, location_id: int, quantity: int,
                employee: str | None = None, note: str | None = None,
                db: Session = Depends(get_db)):
     """Ambil barang dari lokasi (stock berkurang + transaksi OUT)."""
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Quantity harus > 0")
     return inventory.take_item(db, item_id, location_id, quantity, employee, note)
 
 
@@ -22,6 +24,8 @@ def drop_stock(item_id: int, location_id: int, quantity: int,
                employee: str | None = None, note: str | None = None,
                db: Session = Depends(get_db)):
     """Taruh barang di lokasi (stock bertambah + transaksi IN)."""
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Quantity harus > 0")
     return inventory.drop_item(db, item_id, location_id, quantity, employee, note)
 
 
