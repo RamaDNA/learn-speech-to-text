@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends
+import ast
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.agent.ollama_client import ollama_client
+from app.agent.ollama_client import OllamaUnavailable, ollama_client
 from app.agent.prompt import SYSTEM_PROMPT
 from app.agent.tools import (TOOLS, cancel_pending, classify_confirmation,
                              execute_tool, get_pending, run_approved_pending,
@@ -37,7 +41,7 @@ def _get_history(session_id: str) -> list[dict]:
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db)):
-    session_id = payload.session_id or f"session-{len(_sessions) + 1}"
+    session_id = payload.session_id or f"session-{uuid.uuid4().hex}"
     history = _get_history(session_id)
     set_last_message(session_id, payload.message)
 
@@ -56,15 +60,22 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)):
         return execute_tool(db, name, args, session_id=session_id)
 
     history.append({"role": "user", "content": payload.message})
-    updated = ollama_client.run_tool_loop(history, tools=TOOLS, tool_executor=executor)
+    try:
+        updated = ollama_client.run_tool_loop(history, tools=TOOLS, tool_executor=executor)
+    except OllamaUnavailable:
+        logging.error("Agent chat gagal: Ollama tidak tersedia")
+        raise HTTPException(
+            status_code=503,
+            detail="Model AI sedang tidak tersedia, coba lagi nanti",
+        ) from None
 
     final_msg = updated[-1].get("content", "").strip()
     if final_msg.startswith("{{AWAIT_CONFIRM}}"):
         _, tool_name, raw_args = final_msg.split(" ", 2)
         try:
-            import json as _json
-            args = _json.loads(raw_args.replace("'", '"'))
-        except Exception:
+            args = ast.literal_eval(raw_args)
+        except (ValueError, SyntaxError):
+            logging.warning("AWAIT_CONFIRM args tidak valid: %s", raw_args)
             args = {}
         final_msg = _confirm_question(tool_name, args)
     _sessions[session_id] = updated

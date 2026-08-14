@@ -94,3 +94,26 @@ class TestAgentChat:
         assert resp.json()["reply"] == "Stock WD-40 ada 30 unit di C1-R1."
         assert tools.get_pending(session_id) is not None  # pending masih menunggu
         assert FakeOllama.calls == 2  # LLM dipanggil untuk pertanyaan netral
+
+    def test_sesi_anonim_selalu_unik(self, client, api_key, fake_ollama):
+        # regresi: dulu setelah cap 100 semua anonim dapat "session-101" (history silang)
+        ids = {_chat(client, api_key, "halo").json()["session_id"] for _ in range(105)}
+        assert len(ids) == 105
+
+    def test_ollama_down_503(self, client, api_key, monkeypatch):
+        class DownOllama:
+            def run_tool_loop(self, *args, **kwargs):
+                from app.agent.ollama_client import OllamaUnavailable
+                raise OllamaUnavailable("koneksi gagal")
+
+        monkeypatch.setattr("app.routers.agent.ollama_client", DownOllama())
+        resp = _chat(client, api_key, "halo", session_id="s-down-1")
+        assert resp.status_code == 503
+        assert "tidak tersedia" in resp.json()["detail"]
+
+    def test_await_confirm_args_dengan_apostrof(self, client, api_key, fake_ollama, seeded):
+        # regresi: dulu json.loads gagal pada apostrof -> args {} -> nama barang "barang"
+        FakeOllama.reply = "{{AWAIT_CONFIRM}} drop_item {'item_name': \"It's a retur\", 'quantity': 2}"
+        resp = _chat(client, api_key, "taruh 2 barang", session_id="s-apos-1")
+        body = resp.json()
+        assert "It's a retur" in body["reply"]

@@ -1,8 +1,12 @@
+import logging
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.models import Item, ItemStock, Location
+
+logger = logging.getLogger(__name__)
 
 
 def seed(engine) -> None:
@@ -45,7 +49,7 @@ def seed(engine) -> None:
         ]
         db.add_all(stocks)
         db.commit()
-        print(f"[seed] {len(items)} item, {len(locations)} lokasi, {len(stocks)} stock dibuat")
+        logger.info("%d item, %d lokasi, %d stock dibuat", len(items), len(locations), len(stocks))
     finally:
         db.close()
 
