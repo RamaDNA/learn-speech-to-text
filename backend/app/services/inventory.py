@@ -48,6 +48,11 @@ def delete_item(db: Session, item_id: int) -> None:
             status_code=409,
             detail=f"Item id={item_id} masih punya riwayat transaksi, tidak bisa dihapus",
         )
+    if db.scalar(select(ItemStock).where(ItemStock.item_id == item_id)):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Item id={item_id} masih berisi stock, kosongkan dulu",
+        )
     db.delete(item)
     db.commit()
 
@@ -105,9 +110,9 @@ def set_stock(db: Session, item_id: int, location_id: int, quantity: int) -> Ite
     if quantity < 0:
         raise HTTPException(status_code=400, detail="Quantity tidak boleh negatif")
     stock = db.scalar(
-        select(ItemStock).where(
-            ItemStock.item_id == item_id, ItemStock.location_id == location_id
-        )
+        select(ItemStock)
+        .where(ItemStock.item_id == item_id, ItemStock.location_id == location_id)
+        .with_for_update()
     )
     if stock:
         stock.quantity = quantity
@@ -142,16 +147,22 @@ def take_item(db: Session, item_id: int, location_id: int, quantity: int,
     """Kurangi stock di satu lokasi + catat transaksi OUT (atomic)."""
     _get_item(db, item_id)
     _get_location(db, location_id)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity harus lebih dari 0")
     stock = db.scalar(
-        select(ItemStock).where(
-            ItemStock.item_id == item_id, ItemStock.location_id == location_id
-        )
+        select(ItemStock)
+        .where(ItemStock.item_id == item_id, ItemStock.location_id == location_id)
+        .with_for_update()
     )
-    current = stock.quantity if stock else 0
-    if current < quantity:
+    if stock is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Stock tidak cukup: tersedia {current}, diminta {quantity}",
+            detail=f"Stock tidak cukup: tersedia 0, diminta {quantity}",
+        )
+    if stock.quantity < quantity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock tidak cukup: tersedia {stock.quantity}, diminta {quantity}",
         )
     stock.quantity -= quantity
     txn = StockTransaction(
@@ -169,10 +180,12 @@ def drop_item(db: Session, item_id: int, location_id: int, quantity: int,
     """Tambah stock di satu lokasi + catat transaksi IN (atomic)."""
     _get_item(db, item_id)
     _get_location(db, location_id)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity harus lebih dari 0")
     stock = db.scalar(
-        select(ItemStock).where(
-            ItemStock.item_id == item_id, ItemStock.location_id == location_id
-        )
+        select(ItemStock)
+        .where(ItemStock.item_id == item_id, ItemStock.location_id == location_id)
+        .with_for_update()
     )
     if stock:
         stock.quantity += quantity

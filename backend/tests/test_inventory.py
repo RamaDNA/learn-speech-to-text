@@ -1,7 +1,10 @@
 """Test service inventory terhadap postgres test db (bukan mock)."""
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 
+from app.models import ItemStock
 from app.services import inventory
 
 
@@ -40,6 +43,14 @@ class TestItemCRUD:
         with pytest.raises(HTTPException) as exc:
             inventory.delete_item(db_session, item.id)
         assert exc.value.status_code == 409
+
+    def test_delete_item_berisi_stock_tanpa_transaksi_409(self, db_session, item, location):
+        # regresi: item berstock tapi tanpa transaksi jangan terhapus diam-diam
+        inventory.set_stock(db_session, item.id, location.id, 10)
+        with pytest.raises(HTTPException) as exc:
+            inventory.delete_item(db_session, item.id)
+        assert exc.value.status_code == 409
+        assert inventory.search_items(db_session, "baut")  # masih ada
 
 
 class TestStockFlow:
@@ -80,6 +91,32 @@ class TestStockFlow:
     def test_take_item_tidak_ditemukan_404(self, db_session, location):
         with pytest.raises(HTTPException):
             inventory.take_item(db_session, 99999, location.id, 1, None, None)
+
+    def test_take_quantity_0_tanpa_stock_row_400(self, db_session, item, location):
+        # regresi: dulu AttributeError 500 (stock None -> .quantity), harus 400
+        with pytest.raises(HTTPException) as exc:
+            inventory.take_item(db_session, item.id, location.id, 0, None, None)
+        assert exc.value.status_code == 400
+
+    def test_take_stock_row_kosong_400(self, db_session, item, location):
+        # lokasi tanpa baris stock: take > 0 harus 400, bukan 500
+        with pytest.raises(HTTPException) as exc:
+            inventory.take_item(db_session, item.id, location.id, 5, None, None)
+        assert exc.value.status_code == 400
+
+    def test_drop_quantity_0_400(self, db_session, item, location):
+        # regresi: drop 0 menciptakan baris stock kosong + transaksi IN
+        with pytest.raises(HTTPException) as exc:
+            inventory.drop_item(db_session, item.id, location.id, 0, None, None)
+        assert exc.value.status_code == 400
+
+    def test_mutasi_stock_mengunci_baris(self, db_session, item, location):
+        # regresi: take/drop/set harus pakai FOR UPDATE (cegah lost update)
+        stmt = select(ItemStock).where(
+            ItemStock.item_id == item.id, ItemStock.location_id == location.id
+        ).with_for_update()
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in sql.upper()
 
 
 class TestLocation:

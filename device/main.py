@@ -34,10 +34,14 @@ class VoiceAssistant:
         if ww.get("enabled", False) and ww.get("wake_words"):
             from wakeword.wake import WakeWordDetector
 
-            self.wakeword = WakeWordDetector(
-                ww["wake_words"], threshold=ww.get("threshold", 0.5)
-            )
-            log.info("Wake word aktif: %s", ", ".join(ww["wake_words"]))
+            try:
+                self.wakeword = WakeWordDetector(
+                    ww["wake_words"], threshold=ww.get("threshold", 0.5)
+                )
+                log.info("Wake word aktif: %s", ", ".join(ww["wake_words"]))
+            except Exception:
+                log.exception("Wake word gagal dimuat — lanjut tanpa wake word")
+                self.wakeword = None
         self.tts = PiperTTS(
             voice_id=cfg["tts"]["voice_id"],
             voice_en=cfg["tts"]["voice_en"],

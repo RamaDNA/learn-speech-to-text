@@ -35,6 +35,7 @@ class AgentAPI:
             raise RuntimeError(f"API HTTP {e.code}: {body}") from e
         reply = str(data.get("reply") or "").strip()
         sid = str(data.get("session_id") or self.session_id)
+        self.session_id = sid  # ikuti session id dari server (kontinuitas multi-turn)
         return reply, sid
 
 

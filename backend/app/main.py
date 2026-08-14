@@ -1,3 +1,5 @@
+import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,15 +10,16 @@ from app.db import Base, engine
 from app.routers import agent, items, locations, stock, transactions
 from seed_data import seed
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     seed(engine)
     # pull model di background biar startup tidak blocking
-    import threading
     threading.Thread(target=ollama_client._ensure_model, daemon=True).start()
-    print(f"[api] READY — ollama={settings.ollama_base_url} model={settings.ollama_model}")
+    logger.info("READY — ollama=%s model=%s", settings.ollama_base_url, settings.ollama_model)
     yield
 
 

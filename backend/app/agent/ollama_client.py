@@ -1,8 +1,15 @@
 import json
+import logging
 
 import httpx
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class OllamaUnavailable(RuntimeError):
+    """Ollama tidak bisa dihubungi atau gagal merespon."""
 
 
 class OllamaClient:
@@ -17,12 +24,15 @@ class OllamaClient:
                 return
         except httpx.HTTPError:
             pass
-        print(f"[ollama] Model {self.model} belum ada, pull dari registry...")
-        with httpx.stream(
-            "POST", f"{self.base_url}/api/pull",
-            json={"name": self.model, "stream": False}, timeout=1800,
-        ) as resp:
-            resp.raise_for_status()
+        logger.info("Model %s belum ada, pull dari registry...", self.model)
+        try:
+            with httpx.stream(
+                "POST", f"{self.base_url}/api/pull",
+                json={"name": self.model, "stream": False}, timeout=1800,
+            ) as resp:
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.error("Gagal pull model %s: %s", self.model, exc)
 
     def chat(self, messages: list[dict], tools: list | None = None, temperature: float = 0.1) -> dict:
         payload: dict = {
@@ -33,8 +43,11 @@ class OllamaClient:
         }
         if tools:
             payload["tools"] = tools
-        resp = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=300)
-        resp.raise_for_status()
+        try:
+            resp = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=300)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise OllamaUnavailable(f"Ollama tidak bisa dihubungi: {exc}") from exc
         return resp.json()
 
     def run_tool_loop(self, messages: list[dict], tools: list | None = None,
@@ -52,9 +65,9 @@ class OllamaClient:
                 name = call.get("function", {}).get("name", "")
                 raw_args = call.get("function", {}).get("arguments", {})
                 args = raw_args if isinstance(raw_args, dict) else _safe_loads(raw_args)
-                print(f"[agent] tool_call -> {name}({args})")
+                logger.info("tool_call -> %s(%s)", name, args)
                 result = tool_executor(name, args)
-                print(f"[agent] tool_result <- {result[:200]}")
+                logger.info("tool_result <- %s", result[:200])
                 current.append({
                     "role": "tool",
                     "content": result,
