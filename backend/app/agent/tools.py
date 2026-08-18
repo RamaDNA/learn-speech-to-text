@@ -1,33 +1,26 @@
-"""Manajemen token-session untuk tool agent: pending approval + klasifikasi konfirmasi."""
+"""Manajemen pending approval untuk tool agent + klasifikasi konfirmasi.
+
+State pending disimpan di kolom `pending` pada baris AgentSession (DB),
+bukan dict in-memory — sehingga konfirmasi tidak hilang saat API restart.
+"""
 import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.agent import executors as ex
-
-_PENDING: dict[str, dict] = {}
-_LAST_MESSAGE: dict[str, str] = {}
+from app.models import AgentSession
 
 POSITIVE = {"ya", "yes", "y", "betul", "benar", "siap", "oke", "ok", "setuju", "boleh", "lanjut", "gass", "gas", "iya", "bolehkan", "ayo"}
 NEGATIVE = {"tidak", "no", "gak", "nggak", "batal", "cancel", "jangan", "stop", "nope", "enggak", "ga"}
 
 
-def set_last_message(session_id: str, message: str) -> None:
-    _LAST_MESSAGE[session_id] = message.lower()
+def get_pending(session: AgentSession) -> dict | None:
+    return session.pending
 
 
-def get_pending(session_id: str) -> dict | None:
-    return _PENDING.get(session_id)
-
-
-def cancel_pending(session_id: str) -> None:
-    _PENDING.pop(session_id, None)
-
-
-def clear_approval(session_id: str) -> None:
-    _PENDING.pop(session_id, None)
-    _LAST_MESSAGE.pop(session_id, None)
+def cancel_pending(session: AgentSession) -> None:
+    session.pending = None
 
 
 _WORD_RE = re.compile(r"[a-z]+")
@@ -43,17 +36,17 @@ def classify_confirmation(message: str) -> str:
     return "neutral"
 
 
-def _await(session_id: str, tool_name: str, args: dict) -> str:
-    _PENDING[session_id] = {"tool": tool_name, "args": dict(args)}
+def _await(session: AgentSession, tool_name: str, args: dict) -> str:
+    session.pending = {"tool": tool_name, "args": dict(args)}
     # Kode khusus: router menyulapnya jadi pertanyaan konfirmasi yang natural
     return f"{{{{AWAIT_CONFIRM}}}} {tool_name} {args}"
 
 
-def execute_tool(db: Session, tool_name: str, args: dict, session_id: str = "") -> str:
+def execute_tool(db: Session, tool_name: str, args: dict, session: AgentSession | None = None) -> str:
     # take/drop SELALU butuh konfirmasi user; pengeksekusi hanya lewat
-    # run_approved_pending() yang memanggil TANPA session_id (sudah disetujui).
-    if session_id and tool_name in ("take_item", "drop_item"):
-        return _await(session_id, tool_name, args)
+    # run_approved_pending() yang memanggil TANPA session (sudah disetujui).
+    if session is not None and tool_name in ("take_item", "drop_item"):
+        return _await(session, tool_name, args)
 
     fn = getattr(ex, f"executor_{tool_name}", None)
     if fn is None:
@@ -64,12 +57,12 @@ def execute_tool(db: Session, tool_name: str, args: dict, session_id: str = "") 
         return f"Terjadi kesalahan internal saat eksekusi tool {tool_name}: {e}"
 
 
-def run_approved_pending(db: Session, session_id: str) -> str | None:
+def run_approved_pending(db: Session, session: AgentSession) -> str | None:
     """Eksekusi langsung pending yang sudah disetujui. Return None jika tidak ada."""
-    pending = get_pending(session_id)
+    pending = get_pending(session)
     if not pending:
         return None
-    clear_approval(session_id)
+    cancel_pending(session)
     return execute_tool(db, pending["tool"], pending["args"])
 
 

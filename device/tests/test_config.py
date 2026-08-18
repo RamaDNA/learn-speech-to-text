@@ -54,3 +54,13 @@ class TestBuildConfig:
     def test_config_yaml_memuat_kunci_wajib(self):
         assert set(CONFIG.keys()) >= {"audio", "stt", "vad", "tts", "wakeword", "server", "agent"}
         assert os.path.exists(CONFIG["stt"]["model_dir"]) or True  # model_dir boleh kosong di mesin dev
+
+    def test_session_id_unik_persisten(self):
+        # id dibuat otomatis (prefix device-), bukan default dari yaml
+        sid = CONFIG["agent"]["session_id"]
+        assert sid.startswith("device-")
+        assert len(sid) > len("device-")
+        # persisten: reload config (misal restart device) tetap id yang sama
+        reloaded = importlib.reload(config)
+        assert reloaded.CONFIG["agent"]["session_id"] == sid
+        assert os.path.exists(DEVICE_DIR / ".device_id")
