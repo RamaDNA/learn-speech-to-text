@@ -17,6 +17,7 @@ models/
 # Runtime artifacts
 tmp_rec.wav
 last_utterance.raw
+.device_id
 .tts_cache/
 *.log
 

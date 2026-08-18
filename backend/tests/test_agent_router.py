@@ -2,8 +2,9 @@
 import ast
 
 import pytest
+from sqlalchemy import select
 
-from app.agent import tools
+from app.models import AgentSession
 from app.services import inventory
 
 
@@ -51,6 +52,14 @@ def _chat(client, api_key, message, session_id=None):
                        json={"message": message, "session_id": session_id})
 
 
+def _pending(db_session, session_id):
+    """Ambil state pending dari Postgres (persisten, bukan in-memory)."""
+    row = db_session.scalar(
+        select(AgentSession).where(AgentSession.session_id == session_id)
+    )
+    return row.pending if row is not None else None
+
+
 class TestAgentChat:
     def test_chat_biasa(self, client, api_key, fake_ollama):
         resp = _chat(client, api_key, "halo")
@@ -58,14 +67,14 @@ class TestAgentChat:
         assert resp.json()["reply"] == "Baik, ada yang bisa saya bantu?"
         assert resp.json()["session_id"]
 
-    def test_take_memerlukan_konfirmasi(self, client, api_key, fake_ollama, seeded):
+    def test_take_memerlukan_konfirmasi(self, client, api_key, fake_ollama, seeded, db_session):
         FakeOllama.reply = "{{AWAIT_CONFIRM}} take_item {'item_name': 'WD-40 400ml', 'quantity': 5}"
         resp = _chat(client, api_key, "ambil 5 WD-40", session_id="s-take-1")
         body = resp.json()
         assert "Konfirmasi: mengambil 5 WD-40 400ml" in body["reply"]
-        assert tools.get_pending("s-take-1") is not None
+        assert _pending(db_session, "s-take-1") is not None
 
-    def test_approve_mengeksekusi(self, client, api_key, fake_ollama, seeded):
+    def test_approve_mengeksekusi(self, client, api_key, fake_ollama, seeded, db_session):
         session_id = "s-approve-1"
         FakeOllama.reply = "{{AWAIT_CONFIRM}} take_item {'item_name': 'WD-40 400ml', 'quantity': 5}"
         _chat(client, api_key, "ambil 5 WD-40", session_id=session_id)
@@ -73,26 +82,26 @@ class TestAgentChat:
         resp = _chat(client, api_key, "ya", session_id=session_id)
         body = resp.json()
         assert "OUT berhasil" in body["reply"]
-        assert tools.get_pending(session_id) is None
+        assert _pending(db_session, session_id) is None
         assert FakeOllama.calls == 1  # hanya turn pertama yang kena LLM
 
-    def test_reject_membatalkan(self, client, api_key, fake_ollama):
+    def test_reject_membatalkan(self, client, api_key, fake_ollama, db_session):
         session_id = "s-reject-1"
         FakeOllama.reply = "{{AWAIT_CONFIRM}} drop_item {'item_name': 'WD-40 400ml', 'quantity': 2}"
         _chat(client, api_key, "taruh 2 WD-40", session_id=session_id)
         resp = _chat(client, api_key, "tidak jadi", session_id=session_id)
         assert resp.json()["reply"] == "Baik, aksi dibatalkan. Ada yang lain?"
-        assert tools.get_pending(session_id) is None
+        assert _pending(db_session, session_id) is None
         assert FakeOllama.calls == 1
 
-    def test_neutral_menjaga_pending(self, client, api_key, fake_ollama, seeded):
+    def test_neutral_menjaga_pending(self, client, api_key, fake_ollama, seeded, db_session):
         session_id = "s-neutral-1"
         FakeOllama.reply = "{{AWAIT_CONFIRM}} take_item {'item_name': 'WD-40 400ml', 'quantity': 1}"
         _chat(client, api_key, "ambil 1 WD-40", session_id=session_id)
         FakeOllama.reply = "Stock WD-40 ada 30 unit di C1-R1."
         resp = _chat(client, api_key, "saya mau lihat stocknya dulu", session_id=session_id)
         assert resp.json()["reply"] == "Stock WD-40 ada 30 unit di C1-R1."
-        assert tools.get_pending(session_id) is not None  # pending masih menunggu
+        assert _pending(db_session, session_id) is not None  # pending masih menunggu
         assert FakeOllama.calls == 2  # LLM dipanggil untuk pertanyaan netral
 
     def test_sesi_anonim_selalu_unik(self, client, api_key, fake_ollama):

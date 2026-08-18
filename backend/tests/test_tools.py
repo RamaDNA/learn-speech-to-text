@@ -9,6 +9,13 @@ class _DummyDB:
     pass
 
 
+class _FakeSession:
+    """Tiruan AgentSession — pending disimpan sebagai atribut (bukan dict global)."""
+
+    def __init__(self):
+        self.pending = None
+
+
 class TestClassifyConfirmation:
     @pytest.mark.parametrize(
         "message,expected",
@@ -43,39 +50,43 @@ class TestClassifyConfirmation:
 
 class TestPendingFlow:
     def test_await_set_pending(self):
-        result = _await("s1", "take_item", {"item_name": "Baut M8", "quantity": 5})
+        s = _FakeSession()
+        result = _await(s, "take_item", {"item_name": "Baut M8", "quantity": 5})
         assert result.startswith("{{AWAIT_CONFIRM}}")
-        assert get_pending("s1") == {"tool": "take_item", "args": {"item_name": "Baut M8", "quantity": 5}}
+        assert s.pending == {"tool": "take_item", "args": {"item_name": "Baut M8", "quantity": 5}}
 
     def test_cancel_pending(self):
-        _await("s2", "take_item", {})
-        cancel_pending("s2")
-        assert get_pending("s2") is None
+        s = _FakeSession()
+        _await(s, "take_item", {})
+        cancel_pending(s)
+        assert get_pending(s) is None
 
     def test_execute_tool_take_selalu_await_saat_session(self):
-        """Regression B1: take/drop dengan session_id TIDAK boleh dieksekusi langsung."""
+        """Regression B1: take/drop dengan session TIDAK boleh dieksekusi langsung."""
+        s = _FakeSession()
         # ubah pending lama tetap aktif
-        _await("s3", "take_item", {"item_name": "Lama", "quantity": 1})
-        result = execute_tool(_DummyDB(), "take_item", {"item_name": "Baru", "quantity": 2}, session_id="s3")
+        _await(s, "take_item", {"item_name": "Lama", "quantity": 1})
+        result = execute_tool(_DummyDB(), "take_item", {"item_name": "Baru", "quantity": 2}, session=s)
         # harus jadi konfirmasi baru, bukan eksekusi
         assert result.startswith("{{AWAIT_CONFIRM}}")
-        pending = get_pending("s3")
-        assert pending["args"]["item_name"] == "Baru"
+        assert s.pending["args"]["item_name"] == "Baru"
 
     def test_execute_tool_tanpa_session_eksekusi_langsung(self):
-        """Tanpa session_id executor dipanggil langsung (bukan AWAIT_CONFIRM)."""
-        _await("s4", "take_item", {"item_name": "Baut M8", "quantity": 1})
+        """Tanpa session (sudah disetujui) executor dipanggil langsung, bukan AWAIT_CONFIRM."""
+        s = _FakeSession()
+        _await(s, "take_item", {"item_name": "Baut M8", "quantity": 1})
         result = execute_tool(_DummyDB(), "take_item", {"item_name": "Baut M8", "quantity": 1})
         assert not result.startswith("{{AWAIT_CONFIRM}}")
         # DummyDB bukan session SQLAlchemy -> error internal aman (tidak bocor exception)
         assert "Terjadi kesalahan internal" in result
 
     def test_run_approved_pending_clears_state(self):
-        _await("s5", "drop_item", {"item_name": "Baut M8", "quantity": 3})
-        result = run_approved_pending(_DummyDB(), "s5")
-        assert get_pending("s5") is None
+        s = _FakeSession()
+        _await(s, "drop_item", {"item_name": "Baut M8", "quantity": 3})
+        result = run_approved_pending(_DummyDB(), s)
+        assert s.pending is None
         assert result is not None
 
     def test_run_approved_pending_kosong(self):
-        cancel_pending("s6")
-        assert run_approved_pending(_DummyDB(), "s6") is None
+        s = _FakeSession()
+        assert run_approved_pending(_DummyDB(), s) is None

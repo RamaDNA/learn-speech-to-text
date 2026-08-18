@@ -33,5 +33,5 @@ wakeword:
   threshold: 0.5
 
 agent:
-  session_id: device-demo-01
+  session_id: ""            # otomatis: id unik persisten per device (file .device_id)
   max_retries: 2

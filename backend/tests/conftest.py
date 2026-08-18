@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import settings
 from app.db import Base, get_db
-from app.models import Item, ItemStock, Location, StockTransaction
+from app.models import AgentSession, Item, ItemStock, Location, StockTransaction
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
@@ -64,6 +64,7 @@ def _clean_tables(test_engine):
     """Bersihkan semua data setelah tiap test (urutan FK: transaksi -> stock -> lokasi -> item)."""
     yield
     with test_engine.begin() as conn:
+        conn.execute(delete(AgentSession))
         conn.execute(delete(StockTransaction))
         conn.execute(delete(ItemStock))
         conn.execute(delete(Location))
