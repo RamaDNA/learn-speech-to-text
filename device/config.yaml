@@ -5,8 +5,9 @@ server:
 audio:
   sample_rate: 16000
   channels: 1
-  chunk_ms: 30          # ukuran chunk audio untuk VAD (ms)
-  device: null          # null = default mic/speaker
+  chunk_ms: 30            # ukuran chunk audio untuk VAD (ms)
+  input_device: 1         # index sounddevice utk MIC (lihat python -m sounddevice); 1 = Microphone (Realtek) MME — default/Sound Mapper ternyata jalur mati di laptop ini
+  device: null            # output/TTS; null = speaker default
   volume: 90
 
 stt:
@@ -19,9 +20,11 @@ stt:
 
 vad:
   model_path: ../models/silero_vad.onnx
-  threshold: 0.5        # probabilitas bicara
+  threshold: 0.5          # probabilitas bicara
   min_speech_ms: 250
-  min_silence_ms: 600   # diam selama ini = selesai bicara
+  min_silence_ms: 1100    # diam selama ini = selesai bicara (jangan terlalu pendek, jeda antar frasa ikut terpotong)
+  min_record_ms: 1000     # rekaman < ini tidak diakhiri oleh silence (hindari terpotong di jeda pertama)
+  wait_speech_seconds: 8  # tanpa suara segini lama -> kembali mendengarkan wake word
 
 tts:
   voice_id: ../models/piper-id_ID-news_tts-medium/id_ID-news_tts-medium.onnx
@@ -29,7 +32,7 @@ tts:
 
 wakeword:
   enabled: true         # opsional; pakai OpenWakeWord bila true
-  wake_words: ["hey_jarvis_v0.1"]
+  wake_words: ["hey"]
   threshold: 0.5
 
 agent:

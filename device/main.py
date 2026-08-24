@@ -58,8 +58,10 @@ class VoiceAssistant:
             min_silence_ms=cfg["vad"].get("min_silence_ms", 600),
         )
         self.mic = VoiceCapture(
-            self.vad, device=cfg["audio"].get("device"),
+            self.vad, device=cfg["audio"].get("input_device"),
             max_seconds=30.0,
+            wait_speech_seconds=cfg["vad"].get("wait_speech_seconds", 8.0),
+            min_record_ms=cfg["vad"].get("min_record_ms", 1000),
         )
         self.api = AgentAPI()
         self.last_lang = "id"
@@ -74,7 +76,7 @@ class VoiceAssistant:
 
         with sd.InputStream(
             samplerate=16000, channels=1, dtype="int16",
-            device=self.cfg["audio"].get("device"), blocksize=480,
+            device=self.cfg["audio"].get("input_device"), blocksize=480,
         ) as stream:
             while True:
                 data, _ = stream.read(480)

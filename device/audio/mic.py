@@ -18,18 +18,25 @@ class VoiceCapture:
     """Rekam percakapan dari mic: tunggu speech, kumpulkan, akhiri saat silence.
 
     - pre_roll_ms: audio sebelum speech terdeteksi ikut disertakan (hindari terpotong).
-    - max_seconds: batas aman.
+    - max_seconds: batas aman durasi satu ucapan.
+    - wait_speech_seconds: bila tidak ada speech dalam waktu ini, berhenti (None)
+      supaya loop utama kembali mendengarkan wake word.
+    - min_record_ms: jangan akhiri rekaman sebelum sekian panjang — jeda antar
+      kata/frasa tidak langsung dianggap akhir ucapan (perilaku ala ChatGPT/Gemini).
     """
 
     def __init__(self, vad: VAD, device=None, sample_rate: int = SAMPLE_RATE,
                  chunk: int = CHUNK, pre_roll_ms: int = 300,
-                 max_seconds: float = 30.0):
+                 max_seconds: float = 30.0, wait_speech_seconds: float = 8.0,
+                 min_record_ms: int = 1000):
         self.vad = vad
         self.device = device
         self.sample_rate = sample_rate
         self.chunk = chunk
         self.pre_roll = int(pre_roll_ms * sample_rate / 1000)
         self.max_seconds = max_seconds
+        self.wait_speech_samples = int(wait_speech_seconds * sample_rate)
+        self.min_record_samples = int(min_record_ms * sample_rate / 1000)
         self._spoken_samples = 0
         self._silence_samples = 0
 
@@ -57,6 +64,9 @@ class VoiceCapture:
         ) as stream:
             speech_run = 0
             while total_samples < self.max_seconds * self.sample_rate:
+                # belum mulai bicara & sudah melewati batas tunggu -> kembali ke wake word
+                if not speech_started and total_samples >= self.wait_speech_samples:
+                    return None
                 data, _ = stream.read(self.chunk)
                 pcm = data.tobytes()
                 prob = self.vad.is_speech(pcm)
@@ -65,8 +75,13 @@ class VoiceCapture:
                 if speech_started:
                     spoken_chunks.append(pcm)
                     self._spoken_samples += len(data)
-                    self._silence_samples = self._silence_samples + len(data) if prob < self.vad.threshold else 0
-                    if self._silence_samples >= self.vad.min_silence_samples:
+                    if prob < self.vad.threshold:
+                        self._silence_samples += len(data)
+                    else:
+                        self._silence_samples = 0
+                    # selesai hanya jika diam cukup lama DAN rekaman sudah cukup panjang
+                    if (self._spoken_samples >= self.min_record_samples
+                            and self._silence_samples >= self.vad.min_silence_samples):
                         break  # diam cukup lama -> selesai
                 else:
                     pre_roll.append(pcm)
@@ -108,7 +123,7 @@ if __name__ == "__main__":
               min_speech_ms=cfg["vad"]["min_speech_ms"],
               min_silence_ms=cfg["vad"]["min_silence_ms"])
     print("Bicara sekarang...")
-    pcm = record_until_silence(vad, device=cfg["audio"]["device"])
+    pcm = record_until_silence(vad, device=cfg["audio"].get("input_device"))
     if pcm:
         Path("last_utterance.raw").write_bytes(pcm)
         print(f"Tertangkap {len(pcm)} bytes")
